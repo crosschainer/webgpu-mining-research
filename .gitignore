@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.vite/
+.tmp/
+.DS_Store
+.tmp-check/
