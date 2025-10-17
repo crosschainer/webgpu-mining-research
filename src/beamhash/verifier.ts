@@ -72,27 +72,20 @@ function siphash24(state: readonly bigint[], nonce: bigint): bigint {
   return xor64(xor64(v[0], v[1]), xor64(v[2], v[3]));
 }
 
-function wordsToBytes(words: readonly bigint[]): Uint8Array {
-  const out = new Uint8Array(words.length * 8);
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    for (let j = 0; j < 8; j++) {
-      out[i * 8 + (7 - j)] = Number((word >> BigInt(j * 8)) & 0xffn);
-    }
+function wordsToBigIntLE(words: readonly bigint[]): bigint {
+  let value = 0n;
+  for (let i = words.length - 1; i >= 0; i--) {
+    value = (value << 64n) | (words[i] & MASK_64);
   }
-  return out;
+  return value;
 }
 
-function bytesToWords(bytes: Uint8Array, count: number): bigint[] {
-  const out: bigint[] = new Array(count).fill(0n);
-  for (let i = 0; i < count; i++) {
-    let value = 0n;
-    for (let j = 0; j < 8; j++) {
-      const idx = i * 8 + (7 - j);
-      const byte = idx < bytes.length ? BigInt(bytes[idx]) : 0n;
-      value |= byte << BigInt(j * 8);
-    }
-    out[i] = value & MASK_64;
+function bigIntToWordsLE(value: bigint, wordCount: number): bigint[] {
+  const out: bigint[] = new Array(wordCount).fill(0n);
+  let remaining = value;
+  for (let i = 0; i < wordCount; i++) {
+    out[i] = remaining & MASK_64;
+    remaining >>= 64n;
   }
   return out;
 }
@@ -109,19 +102,16 @@ class StepElem {
   }
 
   mergeWith(other: StepElem, remLen: number): void {
-    const remBytes = remLen >> 3;
-    const collisionBytes = COLLISION_BIT_SIZE >> 3;
     for (let i = 0; i < WORK_WORDS; i++) {
       this.workWords[i] = xor64(this.workWords[i], other.workWords[i]);
     }
-    const bytes = wordsToBytes(this.workWords);
-    for (let i = 0; i < remBytes; i++) {
-      bytes[i] = bytes[i + collisionBytes] ?? 0;
+    let combined = wordsToBigIntLE(this.workWords);
+    combined >>= BigInt(COLLISION_BIT_SIZE);
+    if (remLen < WORK_BIT_SIZE) {
+      const mask = (1n << BigInt(remLen)) - 1n;
+      combined &= mask;
     }
-    for (let i = remBytes; i < bytes.length; i++) {
-      bytes[i] = 0;
-    }
-    const updated = bytesToWords(bytes, WORK_WORDS);
+    const updated = bigIntToWordsLE(combined, WORK_WORDS);
     for (let i = 0; i < WORK_WORDS; i++) {
       this.workWords[i] = updated[i];
     }
